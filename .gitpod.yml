@@ -1,0 +1,6 @@
+tasks:
+  - name: sinatra
+    init: | 
+      cd terratowns_mock_server
+      bundle install
+      bundle exec ruby server.rb 
