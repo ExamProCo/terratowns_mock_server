@@ -7,14 +7,14 @@ $home = {}
 
 class Home
   include ActiveModel::Validations
-  attr_acessor :town, :name, :description, :domain_name, :content_version
+  attr_accessor :town, :name, :description, :domain_name, :content_version
 
   validates :town, presence: true
   validates :name, presence: true
   validates :description, presence: true
   validates :domain_name, 
-    uniqueness: true, 
     format: { with: /\.cloudfront\.net\z/, message: "domain must be from .cloudfront.net" }
+    # uniqueness: true, 
 
   validates :content_version, numericality: { only_integer: true }
 end
@@ -84,20 +84,23 @@ class TerraTownsMockServer < Sinatra::Base
     description = payload["description"]
     domain_name = payload["domain_name"]
     content_version = payload["content_version"]
+    town = payload["town"]
 
     puts "name #{name}"
     puts "description #{description}"
     puts "domain_name #{domain_name}"
     puts "content_version #{content_version}"
+    puts "town #{town}"
 
     home = Home.new
+    home.town = town
     home.name = name
     home.description = description
     home.domain_name = domain_name
     home.content_version = content_version
     
     unless home.valid?
-      error 422, home.errors.to_json
+      error 422, home.errors.messages.to_json
     end
 
     uuid = SecureRandom.uuid
@@ -105,6 +108,7 @@ class TerraTownsMockServer < Sinatra::Base
     $home = {
       uuid: uuid,
       name: name,
+      town: town,
       description: description,
       domain_name: domain_name,
       content_version: content_version
@@ -119,11 +123,13 @@ class TerraTownsMockServer < Sinatra::Base
     find_user_by_bearer_token
     puts "# read - GET /api/homes/:uuid"
 
+    # checks for house limit
+
     content_type :json
     if params[:uuid] == $home[:uuid]
-      $home.to_json
+      return $home.to_json
     else
-      halt 404, { error: "House not found" }.to_json
+      error 404, "failed to find home with provided uuid and bearer token"
     end
   end
 
@@ -135,30 +141,32 @@ class TerraTownsMockServer < Sinatra::Base
     begin
       # Parse JSON payload from the request body
       payload = JSON.parse(request.body.read)
-
-      # Validate payload data
-      name = payload["name"]
-      description = payload["description"]
-      domain_name = payload["domain_name"]
-      content_version = payload["content_version"]
-
-      unless params[:uuid] == $home[:uuid]
-        halt 404, { error: "House not found" }.to_json
-      end
-
-      if name && description && domain_name && content_version.is_a?(Integer)
-        $home[:name] = name
-        $home[:description] = description
-        $home[:domain_name] = domain_name
-        $home[:content_version] = content_version
-        { uuid: params[:uuid] }.to_json
-      else
-        halt 422, "Invalid payload"
-      end
-
     rescue JSON::ParserError
       halt 422, "Malformed JSON"
     end
+
+    # Validate payload data
+    name = payload["name"]
+    description = payload["description"]
+    domain_name = payload["domain_name"]
+    content_version = payload["content_version"]
+
+    unless params[:uuid] == $home[:uuid]
+      error 404, "failed to find home with provided uuid and bearer token"
+    end
+
+    home = Home.new
+    home.town = $home[:town]
+    home.name = name
+    home.description = description
+    home.domain_name = domain_name
+    home.content_version = content_version
+
+    unless home.valid?
+      error 422, home.errors.messages.to_json
+    end
+
+    return { uuid: params[:uuid] }.to_json
   end
 
   # DELETE
@@ -167,12 +175,13 @@ class TerraTownsMockServer < Sinatra::Base
     find_user_by_bearer_token
     puts "# delete - DELETE /api/homes/:uuid"
     content_type :json
-    if params[:uuid] == $home[:uuid]
-      $home = {}
-      { message: "House deleted successfully" }.to_json
-    else
-      halt 404, { error: "House not found" }.to_json
+
+    if params[:uuid] != $home[:uuid]
+      error 404, "failed to find home with provided uuid and bearer token"
     end
+
+    $home = {}
+    { message: "House deleted successfully" }.to_json
   end
 end
 
